@@ -9,7 +9,6 @@
 #import "CTFeedbackViewController.h"
 #import "CTFeedbackCell.h"
 #import "CTFeedbackCellItem.h"
-#import "CTFeedbackImagePreviewViewController.h"
 #import "CTFeedbackTopicsViewController.h"
 #include <sys/sysctl.h>
 #import "NSBundle+CTFeedback.h"
@@ -23,7 +22,7 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
     CTFeedbackSectionAppInfo
 };
 
-@interface CTFeedbackViewController ()<UIImagePickerControllerDelegate,UIActionSheetDelegate,UINavigationControllerDelegate, CTFeedbackImagePreviewDelegate>
+@interface CTFeedbackViewController ()<UIImagePickerControllerDelegate,UIActionSheetDelegate,UINavigationControllerDelegate>
 
 @property (nonatomic, readonly) NSUInteger selectedTopicIndex;
 
@@ -38,10 +37,10 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
 @property (nonatomic, strong) CTFeedbackContentCellItem *contentCellItem;
 @property (nonatomic, strong) CTFeedbackFieldCellItem *emailCellItem;
 @property (nonatomic, strong) CTFeedbackAdditionInfoCellItem *additionCellItem;
-@property (nonatomic, readonly) NSString *mailSubject;
 @property (nonatomic, readonly) NSString *mailBody;
 @property (nonatomic, readonly) NSData *mailAttachment;
 @property (nonatomic, assign) BOOL previousNavigationBarHiddenState;
+@property (nonatomic, strong) UIPopoverController *popoverController;
 @end
 
 @implementation CTFeedbackViewController
@@ -112,9 +111,16 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
         self.navigationController.navigationBarHidden = NO;
     }
 
-    if (self.presentingViewController.presentedViewController) {
-        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancelButtonTapped:)];
-    }
+	if(self.navigationController != nil){
+		if( [self.navigationController viewControllers][0] == self){
+			self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancelButtonTapped:)];
+		}else{
+			// Keep the standard back button instead of "Cancel"
+			self.navigationItem.leftBarButtonItem = nil;
+		}
+	} else {
+		self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancelButtonTapped:)];
+	}
 }
 
 - (void)didReceiveMemoryWarning
@@ -179,9 +185,9 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
 - (NSArray *)inputCellItems
 {
     NSMutableArray *result = [NSMutableArray array];
-
+    
     __weak CTFeedbackViewController *weakSelf = self;
-
+    
     self.topicCellItem = [CTFeedbackTopicCellItem new];
     self.topicCellItem.topic = self.localizedTopics[self.selectedTopicIndex];
     self.topicCellItem.action = ^(CTFeedbackViewController *sender) {
@@ -198,7 +204,9 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
 
         [sender.navigationController pushViewController:topicsViewController animated:YES];
     };
-    [result addObject:self.topicCellItem];
+    if (!self.hidesTopicCell) {
+        [result addObject:self.topicCellItem];
+    }
 
     self.contentCellItem = [CTFeedbackContentCellItem new];
     [self.contentCellItem addObserver:self forKeyPath:@"cellHeight" options:NSKeyValueObservingOptionNew context:nil];
@@ -252,7 +260,7 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
 - (NSArray *)appInfoCellItems
 {
     NSMutableArray *result = [NSMutableArray array];
-
+    
     if (!self.hidesAppNameCell) {
         CTFeedbackInfoCellItem *nameItem = [CTFeedbackInfoCellItem new];
         nameItem.title = CTFBLocalizedString(@"Name");
@@ -332,8 +340,11 @@ typedef NS_ENUM(NSInteger, CTFeedbackSection){
     return [[NSBundle mainBundle] objectForInfoDictionaryKey:(NSString *)kCFBundleVersionKey];
 }
 
-- (NSString *)mailSubject
+- (NSString *)_mailSubject
 {
+    if (self.mailSubject != nil && self.mailSubject.length > 0) {
+        return self.mailSubject;
+    }
     return [NSString stringWithFormat:@"%@: %@", self.appName, self.topics[self.selectedTopicIndex]];
 }
 
@@ -389,7 +400,7 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
     if (self.useCustomCallback) {
         NSAssert(self.delegate, @"No delegate provided");
         if (self.delegate && [self.delegate respondsToSelector:@selector(feedbackViewController:didFinishWithCustomCallback:topic:content:attachment:)]) {
-            [self.delegate feedbackViewController:self didFinishWithCustomCallback:self.emailCellItem.textField.text topic:self.mailSubject content:self.contentCellItem.textView.text.length ? self.mailBody : nil attachment:[UIImage imageWithData:self.mailAttachment]];
+            [self.delegate feedbackViewController:self didFinishWithCustomCallback:self.emailCellItem.textField.text topic:self._mailSubject content:self.contentCellItem.textView.text.length ? self.mailBody : nil attachment:[UIImage imageWithData:self.mailAttachment]];
         }
     } else if ([MFMailComposeViewController canSendMail]) {
         MFMailComposeViewController *controller = [[MFMailComposeViewController alloc] init];
@@ -397,7 +408,7 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
         [controller setToRecipients:self.toRecipients];
         [controller setCcRecipients:self.ccRecipients];
         [controller setBccRecipients:self.bccRecipients];
-        [controller setSubject:self.mailSubject];
+        [controller setSubject:self._mailSubject];
         [controller setMessageBody:self.mailBody isHTML:self.useHTML];
         // Attach an image to the email
         if (self.mailAttachment && [self.mailAttachment length]>0) {
@@ -475,7 +486,7 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
         case CTFeedbackSectionDeviceInfo:
             return CTFBLocalizedString(@"Device Info");
         case CTFeedbackSectionAppInfo:
-            return CTFBLocalizedString(@"App Info");
+            return self.hidesAppNameCell && self.hidesAppVersionCell ? nil : CTFBLocalizedString(@"App Info");
         default:
             return nil;
     }
@@ -593,7 +604,24 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
     UIImagePickerController *controller = [[UIImagePickerController alloc] init];
     controller.sourceType = sourceType;
     controller.delegate = self;
-    [self presentViewController:controller animated:YES completion:nil];
+	
+	if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+		if ([UIPopoverPresentationController class]) {
+			controller.modalPresentationStyle = UIModalPresentationPopover;
+			
+			UIPopoverPresentationController *presentationController = [controller popoverPresentationController];
+			presentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
+			presentationController.sourceView = self.view;
+			presentationController.sourceRect = self.view.frame;
+			
+			[self presentViewController:controller animated:YES completion:nil];
+		} else {
+			self.popoverController = [[UIPopoverController alloc] initWithContentViewController:controller];
+			[self.popoverController presentPopoverFromRect:self.view.frame inView:self.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+		}
+	} else {
+		[self presentViewController:controller animated:YES completion:nil];
+	}
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet didDismissWithButtonIndex:(NSInteger)buttonIndex {
@@ -611,19 +639,28 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
     }
 }
 
-- (void)attachImage:(UIImage *)image {
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:CTFeedbackSectionScreenshot];
-    CTFeedbackAdditionInfoCellItem *cellItem = self.cellItems[(NSUInteger)indexPath.section][(NSUInteger)indexPath.row];
-    cellItem.screenImage = image;
-    //        cellItem.value = [[info objectForKey:@"UIImagePickerControllerReferenceURL"] absoluteString];
-    [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-}
-
-#pragma mark - CTFeedbackImagePreviewDelegate
-- (void)imagePreviewController:(CTFeedbackImagePreviewViewController *)previewer didSelectImage:(UIImage *)image {
-    [self.presentedViewController dismissViewControllerAnimated:YES completion:^{
-        [self attachImage:image];
-    }];
+#pragma mark - UIImagePickerControllerDelegate
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
+	
+	void (^block)() = ^{
+		NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:CTFeedbackSectionScreenshot];
+		CTFeedbackAdditionInfoCellItem *cellItem = self.cellItems[(NSUInteger)indexPath.section][(NSUInteger)indexPath.row];
+		
+		UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
+		if (image == nil){
+			image = [info objectForKey:UIImagePickerControllerOriginalImage];
+		}
+		cellItem.screenImage = image;
+		//        cellItem.value = [[info objectForKey:@"UIImagePickerControllerReferenceURL"] absoluteString];
+		[self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+	};
+	
+	if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad && ![UIPopoverPresentationController class]) {
+		[self.popoverController dismissPopoverAnimated:YES];
+		block();
+	} else {
+		[picker dismissViewControllerAnimated:YES completion:block];
+	}
 }
 
 #pragma mark - UIImagePickerControllerDelegate
@@ -650,7 +687,11 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
 }
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    [picker dismissViewControllerAnimated:YES completion:nil];
+	if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad && ![UIPopoverPresentationController class]) {
+		[self.popoverController dismissPopoverAnimated:YES];
+	} else {
+		[picker dismissViewControllerAnimated:YES completion:nil];
+	}
 }
 
 #pragma mark - camera utility
