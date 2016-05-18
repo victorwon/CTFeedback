@@ -482,7 +482,7 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
         case CTFeedbackSectionEmail:
             return self.showsUserEmail ? CTFBLocalizedString(@"User detail") : nil;
         case CTFeedbackSectionInput:
-            return nil;
+            return @"Message";
         case CTFeedbackSectionScreenshot:
             return self.hidesAdditionalContent ? nil : CTFBLocalizedString(@"Additional Info");
         case CTFeedbackSectionDeviceInfo:
