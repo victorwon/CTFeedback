@@ -663,29 +663,6 @@ static NSString * const ATTACHMENT_FILENAME = @"screenshot.jpg";
 	}
 }
 
-#pragma mark - UIImagePickerControllerDelegate
-
-- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
-    // UIImagePickerControllerMediaMetadata is only valid when source is UIImagePickerControllerSourceTypeCamera
-    BOOL fromCamera = info[UIImagePickerControllerMediaMetadata] != nil;
-    
-    if( fromCamera ) {
-        [picker dismissViewControllerAnimated:YES completion:^() {
-            UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
-            if (image == nil){
-                image = [info objectForKey:UIImagePickerControllerOriginalImage];
-            }
-            
-            [self attachImage:image];
-        }];
-    } else {
-        UIImage *image = [info objectForKey:UIImagePickerControllerOriginalImage];
-        CTFeedbackImagePreviewViewController *imagePreview = [[CTFeedbackImagePreviewViewController alloc] initWithImage:image];
-        imagePreview.delegate = self;
-        [picker pushViewController:imagePreview animated:YES];
-    }
-}
-
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
 	if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad && ![UIPopoverPresentationController class]) {
 		[self.popoverController dismissPopoverAnimated:YES];
